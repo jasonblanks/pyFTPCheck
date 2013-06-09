@@ -1,24 +1,9 @@
-#!/usr/bin/env python
+#!/usr/bin/python
 
-# Copyright (C) 2003-2007  Robey Pointer <robeypointer@gmail.com>
+# Copyright (C) 2013  Jason Blanks <jason.blanks@gmail.com>
 #
-# This file is part of paramiko.
-#
-# Paramiko is free software; you can redistribute it and/or modify it under the
-# terms of the GNU Lesser General Public License as published by the Free
-# Software Foundation; either version 2.1 of the License, or (at your option)
-# any later version.
-#
-# Paramiko is distrubuted in the hope that it will be useful, but WITHOUT ANY
-# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
-# A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for more
-# details.
-#
-# You should have received a copy of the GNU Lesser General Public License
-# along with Paramiko; if not, write to the Free Software Foundation, Inc.,
-# 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
-#mftp.fts.us.kpmg.com
-# based on code provided by raymond mosteller (thanks!)
+#This is a a simple script to check for new files on a sftp, can be set to a cron job for times reports.
+# based on code provided by raymond mosteller and Robey Pointer (thanks!)
 
 import base64
 import getpass
@@ -26,10 +11,22 @@ import os
 import socket
 import sys
 import traceback
-files = []
 import paramiko
-count = 0
-def traverse(sftp, cwd, files):
+import smtplib
+
+files = []
+username = 'username'
+hostname = "ftp.site.com"
+port = 22
+password = "password"
+
+gmail_user = "user@gmail.com"
+gmail_pwd = "password"
+FROM = 'user@gmail.com'
+TO = ['user@gmail.com'] #must be a list
+SUBJECT = "SFTP Hourly update"
+
+def traverseSFTP(sftp, cwd, files):
     list = sftp.listdir(cwd)
     sftp.chdir(cwd)
     c = sftp.getcwd()
@@ -44,12 +41,12 @@ def traverse(sftp, cwd, files):
             ##print "cwd is "+sftp.getcwd()
             dlist = sftp.listdir(cwd)
             for d in dlist:
-                x = cwd+"\\"+d
+                x = cwd+"\/"+d
                 files.append(x)
             ##print dlist
             try:
                 #print f
-                traverse(sftp, cwd, files)
+                traverseSFTP(sftp, cwd, files)
                 sftp.chdir('..')
             except:
                 continue
@@ -62,35 +59,34 @@ def traverse(sftp, cwd, files):
             #print "error"
             pass
     return cwd
+    
 
+def send_email(files,gmail_user,gmail_pwd,FROM,TO,SUBJECT):
+            def printl(files):
+                f = "New Files in the past Hour:\n\n"
+                for l in files:
+                        f = f+"\n"+l+"\n"
+                return f
+            
+            TEXT = printl(files)
+
+            # Prepare actual message
+            message = """\From: %s\nTo: %s\nSubject: %s\n\n%s
+            """ % (FROM, ", ".join(TO), SUBJECT, TEXT)
+            try:
+                #server = smtplib.SMTP(SERVER) 
+                server = smtplib.SMTP("smtp.gmail.com", 587) #or port 465 doesn't seem to work!
+                server.ehlo()
+                server.starttls()
+                server.login(gmail_user, gmail_pwd)
+                server.sendmail(FROM, TO, message)
+                #server.quit()
+                server.close()
+                print 'successfully sent the mail'
+            except:
+                print "failed to send mail"
 # setup logging
 #paramiko.util.log_to_file('demo_sftp.log')
-
-# get hostname
-
-username = ''
-if len(sys.argv) > 1:
-    hostname = sys.argv[1]
-    if hostname.find('@') >= 0:
-        username, hostname = hostname.split('@')
-else:
-    hostname = raw_input('Hostname: ')
-if len(hostname) == 0:
-    print '*** Hostname required.'
-    sys.exit(1)
-port = 22
-if hostname.find(':') >= 0:
-    hostname, portstr = hostname.split(':')
-    port = int(portstr)
-
-
-# get username
-if username == '':
-    default_username = getpass.getuser()
-    username = raw_input('Username [%s]: ' % default_username)
-    if len(username) == 0:
-        username = default_username
-password = getpass.getpass('Password for %s@%s: ' % (username, hostname))
 
 
 # get host key, if we know one
@@ -110,30 +106,12 @@ if host_keys.has_key(hostname):
     hostkeytype = host_keys[hostname].keys()[0]
     hostkey = host_keys[hostname][hostkeytype]
     print 'Using host key of type %s' % hostkeytype
-#LastDirList = null
 
 # now, connect and use paramiko Transport to negotiate SSH2 across the connection
 try:
     t = paramiko.Transport((hostname, port))
     t.connect(username=username, password=password, hostkey=hostkey)
     sftp = paramiko.SFTPClient.from_transport(t)
-
-# dirlist on remote host
-#	dirlist = sftp.listdir('.')
-#	print "Dirlist:", dirlist
-#	sftp.chdir(dirlist[0])
-#	dirlist = sftp.listdir('.')
-#	print "Dirlist:", dirlist
-#	sftp.chdir(dirlist[0])
-#	dirlist = sftp.listdir('.')
-#	print "Dirlist:", dirlist#
-#	for dir in Dirlist:
-#'''
-    cwd = '.'
-    #cwd = sftp.chdir('.')
-    traverse(sftp, cwd, files)
-    for l in files:
-        print l
 #t.close()
 
 
@@ -145,3 +123,27 @@ except Exception, e:
     except:
         pass
     sys.exit(1)
+
+
+#Read in last hourly snapshot list
+try:
+    with open('hourly.txt') as HourlySnapshotFile:
+        snapshot = HourlySnapshotFile.read().splitlines()
+except:
+    pass
+
+cwd = '.'
+#cwd = sftp.chdir('.')
+traverseSFTP(sftp, cwd, files)
+HourlySnapshotFile = open('hourly.txt', 'w')
+for l in files:
+    HourlySnapshotFile.write(l+"\n")
+
+
+new_files = []
+for element in files:
+    if element not in snapshot:
+        new_files.append(element)
+print new_files
+
+send_email(new_files,gmail_user,gmail_pwd,FROM,TO,SUBJECT)
