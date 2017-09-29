@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# mftp.fts.us.kpmg.com
+# 
 # Copyright (C) 2003-2007  Robey Pointer <robeypointer@gmail.com>
 #
 # This file is part of paramiko.
